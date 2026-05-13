@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
 import mysql.connector
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 import numpy as np
@@ -9,17 +9,64 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = "medical_key_2026"
 
-# Configuration Database
-db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="",
-    database="skin_cancer_db"
-)
+# 1. Configuration & Auto-Setup Database
+def init_db():
+    try:
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password=""
+        )
+        cursor = conn.cursor()
+        cursor.execute("CREATE DATABASE IF NOT EXISTS skin_cancer_db")
+        cursor.execute("USE skin_cancer_db")
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) NOT NULL,
+                password VARCHAR(50) NOT NULL
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS patients (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100),
+                result VARCHAR(50),
+                confidence FLOAT,
+                image_path VARCHAR(255),
+                date_added DATETIME
+            )
+        """)
+        
+        cursor.execute("SELECT * FROM users")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO users (username, password) VALUES ('admin', 'admin123')")
+            conn.commit()
+            
+        return conn
+    except Exception as e:
+        print(f"CRITICAL ERROR: Could not connect to MySQL. {e}")
+        return None
 
-# Chargement du Modèle AI
+db = init_db()
+
+# 2. Ensure Uploads Folder exists
+UPLOAD_FOLDER = 'static/uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# 3. Model Loading
 MODEL_PATH = 'model/vgg16_malignant_vs_bengin.h5'
-model = load_model(MODEL_PATH)
+try:
+    model = load_model(MODEL_PATH)
+    print("AI Model loaded successfully.")
+except Exception as e:
+    model = None
+    print(f"WARNING: Model could not be loaded. {e}")
+
+# --- ROUTES ---
 
 @app.route('/')
 def index():
@@ -30,19 +77,23 @@ def login():
     if request.method == 'POST':
         user = request.form['username']
         pwd = request.form['password']
-        cursor = db.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE username=%s AND password=%s", (user, pwd))
-        account = cursor.fetchone()
-        if account:
-            session['loggedin'] = True
-            return redirect(url_for('dashboard'))
+        if db:
+            cursor = db.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE username=%s AND password=%s", (user, pwd))
+            account = cursor.fetchone()
+            if account:
+                session['loggedin'] = True
+                return redirect(url_for('dashboard'))
+            else:
+                flash("Identifiants incorrects !", "danger")
         else:
-            flash("Identifiants incorrects !", "danger")
+            flash("Erreur de base de données !", "danger")
     return render_template('login.html')
 
 @app.route('/dashboard')
 def dashboard():
     if 'loggedin' not in session: return redirect(url_for('login'))
+    if not db: return "Database connection error"
     cursor = db.cursor()
     cursor.execute("SELECT COUNT(*) FROM patients")
     total = cursor.fetchone()[0]
@@ -58,37 +109,33 @@ def predict():
     if request.method == 'POST':
         file = request.files['file']
         p_name = request.form['patient_name']
-        if file:
+        if file and model:
             filename = file.filename
-            filepath = os.path.join('static/uploads', filename)
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
             file.save(filepath)
             
-            # Prétraitement et Prédiction AI
             img = image.load_img(filepath, target_size=(224, 224))
             x = image.img_to_array(img) / 255.0
             x = np.expand_dims(x, axis=0)
             
             pred_raw = model.predict(x)[0][0]
-            
-            # Correction de l'erreur numpy.float32 pour MySQL
             res = "Malignant" if pred_raw > 0.5 else "Benign"
             conf = float(pred_raw * 100) if pred_raw > 0.5 else float((1 - pred_raw) * 100)
             
-            # Insertion dans la base de données
-            cursor = db.cursor()
-            query = "INSERT INTO patients (name, result, confidence, image_path, date_added) VALUES (%s, %s, %s, %s, %s)"
-            cursor.execute(query, (p_name, res, round(conf, 2), filename, datetime.now()))
-            db.commit()
-            
-            # Récupérer l'ID pour afficher le résultat spécifique
-            last_id = cursor.lastrowid
-            return redirect(url_for('result', report_id=last_id))
+            if db:
+                cursor = db.cursor()
+                query = "INSERT INTO patients (name, result, confidence, image_path, date_added) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(query, (p_name, res, round(conf, 2), filename, datetime.now()))
+                db.commit()
+                last_id = cursor.lastrowid
+                return redirect(url_for('result', report_id=last_id))
             
     return render_template('predict.html')
 
 @app.route('/result/<int:report_id>')
 def result(report_id):
     if 'loggedin' not in session: return redirect(url_for('login'))
+    if not db: return "Database Error"
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM patients WHERE id = %s", (report_id,))
     report = cursor.fetchone()
@@ -97,6 +144,7 @@ def result(report_id):
 @app.route('/patients')
 def patients():
     if 'loggedin' not in session: return redirect(url_for('login'))
+    if not db: return "Database Error"
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM patients ORDER BY date_added DESC")
     all_patients = cursor.fetchall()
