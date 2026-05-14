@@ -257,3 +257,51 @@ body {
     0% { top: 0; }
     100% { top: 100%; }
 }
+
+/* 6. FLASH ALERTS */
+.flash-alert {
+    padding: 12px 20px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.flash-danger  { background: #fff5f5; color: #e74c3c; border: 1px solid #feb2b2; }
+.flash-success { background: #f0fff4; color: #2ecc71; border: 1px solid #9ae6b4; }
+.flash-warning { background: #fffbf0; color: #f39c12; border: 1px solid #fde68a; }
+.flash-info    { background: #f0f7ff; color: #3498db; border: 1px solid #bee3f8; }
+
+/* 7. INPUT GROUP (login form) */
+.input-group {
+    position: relative;
+    margin-bottom: 20px;
+    text-align: left;
+}
+.input-group i {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+}
+.input-group input {
+    width: 100%;
+    padding: 14px 14px 14px 44px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: 'Poppins', sans-serif;
+    transition: 0.3s;
+    outline: none;
+    background: #f8fafc;
+    color: var(--text-dark);
+}
+.input-group input:focus {
+    border-color: var(--primary);
+    background: var(--white);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
